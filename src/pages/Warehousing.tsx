@@ -18,13 +18,42 @@ const tabItems = [
   { key: 'rejected', label: '已拒收' },
 ]
 
+interface ApproveFormData {
+  inspector: string
+  inspection_result: string
+  warehouse_id: string
+  location_code: string
+}
+
+interface RejectFormData {
+  inspector: string
+  reject_reason: string
+}
+
+const defaultApproveForm: ApproveFormData = {
+  inspector: '张伟',
+  inspection_result: '合格',
+  warehouse_id: '',
+  location_code: '',
+}
+
+const defaultRejectForm: RejectFormData = {
+  inspector: '张伟',
+  reject_reason: '',
+}
+
 export default function Warehousing() {
   const [activeTab, setActiveTab] = useState('all')
   const [showForm, setShowForm] = useState(false)
+  const [showApproveModal, setShowApproveModal] = useState(false)
+  const [showRejectModal, setShowRejectModal] = useState(false)
+  const [activeOrderId, setActiveOrderId] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
   const warehousingOrders = useAppStore((s) => s.warehousingOrders)
   const hazardousGoods = useAppStore((s) => s.hazardousGoods)
+  const warehouses = useAppStore((s) => s.warehouses)
   const addWarehousingOrder = useAppStore((s) => s.addWarehousingOrder)
+  const updateWarehousingOrder = useAppStore((s) => s.updateWarehousingOrder)
 
   const [formData, setFormData] = useState({
     supplier: '',
@@ -35,6 +64,9 @@ export default function Warehousing() {
     batch_no: '',
     remarks: '',
   })
+
+  const [approveForm, setApproveForm] = useState<ApproveFormData>(defaultApproveForm)
+  const [rejectForm, setRejectForm] = useState<RejectFormData>(defaultRejectForm)
 
   const filteredOrders = warehousingOrders.filter((o) => {
     const matchTab = activeTab === 'all' || o.status === activeTab
@@ -66,6 +98,51 @@ export default function Warehousing() {
     })
     setShowForm(false)
     setFormData({ supplier: '', goods_id: '', goods_name: '', quantity: 0, unit: 'L', batch_no: '', remarks: '' })
+  }
+
+  const handleStartInspection = (id: string) => {
+    updateWarehousingOrder(id, { status: 'inspecting' })
+  }
+
+  const handleOpenApprove = (id: string) => {
+    setActiveOrderId(id)
+    setApproveForm({ ...defaultApproveForm })
+    setShowApproveModal(true)
+  }
+
+  const handleOpenReject = (id: string) => {
+    setActiveOrderId(id)
+    setRejectForm({ ...defaultRejectForm })
+    setShowRejectModal(true)
+  }
+
+  const handleApproveSubmit = () => {
+    if (!activeOrderId || !approveForm.inspector || !approveForm.warehouse_id) return
+    updateWarehousingOrder(activeOrderId, {
+      status: 'approved',
+      inspector: approveForm.inspector,
+      inspection_result: approveForm.inspection_result,
+      inspection_date: new Date().toISOString().split('T')[0],
+      warehouse_id: approveForm.warehouse_id,
+      location_code: approveForm.location_code,
+    })
+    setShowApproveModal(false)
+    setActiveOrderId(null)
+  }
+
+  const handleRejectSubmit = () => {
+    if (!activeOrderId || !rejectForm.inspector || !rejectForm.reject_reason) return
+    const order = warehousingOrders.find((o) => o.id === activeOrderId)
+    const existingRemarks = order?.remarks ? order.remarks + '；' : ''
+    updateWarehousingOrder(activeOrderId, {
+      status: 'rejected',
+      inspector: rejectForm.inspector,
+      inspection_result: '不合格',
+      inspection_date: new Date().toISOString().split('T')[0],
+      remarks: existingRemarks + '拒收原因：' + rejectForm.reject_reason,
+    })
+    setShowRejectModal(false)
+    setActiveOrderId(null)
   }
 
   const checkTaboo = (goodsId: string) => {
@@ -206,6 +283,105 @@ export default function Warehousing() {
         </div>
       )}
 
+      {showApproveModal && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto shadow-xl">
+            <div className="p-5 border-b border-gray-100 flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-gray-800">检验通过 - 入库确认</h2>
+              <button onClick={() => { setShowApproveModal(false); setActiveOrderId(null) }} className="p-1 hover:bg-gray-100 rounded">
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+            <div className="p-5 space-y-4">
+              <div>
+                <label className="block text-sm text-gray-600 mb-1">检验员 <span className="text-danger">*</span></label>
+                <input
+                  type="text"
+                  value={approveForm.inspector}
+                  onChange={(e) => setApproveForm({ ...approveForm, inspector: e.target.value })}
+                  className="input-field"
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-gray-600 mb-1">检验结果 <span className="text-danger">*</span></label>
+                <select
+                  value={approveForm.inspection_result}
+                  onChange={(e) => setApproveForm({ ...approveForm, inspection_result: e.target.value })}
+                  className="input-field"
+                >
+                  <option value="合格">合格</option>
+                  <option value="有条件合格">有条件合格</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm text-gray-600 mb-1">入库仓库 <span className="text-danger">*</span></label>
+                <select
+                  value={approveForm.warehouse_id}
+                  onChange={(e) => setApproveForm({ ...approveForm, warehouse_id: e.target.value })}
+                  className="input-field"
+                >
+                  <option value="">请选择仓库</option>
+                  {warehouses.map((w) => (
+                    <option key={w.id} value={w.id}>{w.name} ({w.zone})</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm text-gray-600 mb-1">库位编码</label>
+                <input
+                  type="text"
+                  value={approveForm.location_code}
+                  onChange={(e) => setApproveForm({ ...approveForm, location_code: e.target.value })}
+                  className="input-field"
+                  placeholder="如 A-01-03"
+                />
+              </div>
+            </div>
+            <div className="p-5 border-t border-gray-100 flex justify-end gap-3">
+              <button onClick={() => { setShowApproveModal(false); setActiveOrderId(null) }} className="btn-secondary">取消</button>
+              <button onClick={handleApproveSubmit} className="btn-primary">确认入库</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showRejectModal && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto shadow-xl">
+            <div className="p-5 border-b border-gray-100 flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-gray-800">检验拒收</h2>
+              <button onClick={() => { setShowRejectModal(false); setActiveOrderId(null) }} className="p-1 hover:bg-gray-100 rounded">
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+            <div className="p-5 space-y-4">
+              <div>
+                <label className="block text-sm text-gray-600 mb-1">检验员 <span className="text-danger">*</span></label>
+                <input
+                  type="text"
+                  value={rejectForm.inspector}
+                  onChange={(e) => setRejectForm({ ...rejectForm, inspector: e.target.value })}
+                  className="input-field"
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-gray-600 mb-1">拒收原因 <span className="text-danger">*</span></label>
+                <textarea
+                  value={rejectForm.reject_reason}
+                  onChange={(e) => setRejectForm({ ...rejectForm, reject_reason: e.target.value })}
+                  className="input-field h-28 resize-none"
+                  placeholder="请详细说明拒收原因..."
+                />
+              </div>
+            </div>
+            <div className="p-5 border-t border-gray-100 flex justify-end gap-3">
+              <button onClick={() => { setShowRejectModal(false); setActiveOrderId(null) }} className="btn-secondary">取消</button>
+              <button onClick={handleRejectSubmit} className="btn-danger">确认拒收</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="card">
         <div className="p-4 border-b border-gray-100">
           <div className="flex flex-wrap items-center gap-3">
@@ -277,7 +453,7 @@ export default function Warehousing() {
                             <Check className="w-4 h-4 text-success" />
                             <span className="text-gray-500">检验员:</span>
                             <span className="text-gray-800">{order.inspector}</span>
-                            <span className="text-success">({order.inspection_result})</span>
+                            <span className={order.inspection_result === '不合格' ? 'text-danger' : 'text-success'}>({order.inspection_result})</span>
                           </div>
                         )}
                         {order.location_code && (
@@ -291,22 +467,22 @@ export default function Warehousing() {
                     )}
                     {order.remarks && (
                       <div className="mt-2 flex items-start gap-1.5">
-                        <AlertCircle className="w-4 h-4 text-warning flex-shrink-0 mt-0.5" />
-                        <span className="text-sm text-warning">{order.remarks}</span>
+                        <AlertCircle className={`w-4 h-4 flex-shrink-0 mt-0.5 ${order.status === 'rejected' ? 'text-danger' : 'text-warning'}`} />
+                        <span className={`text-sm ${order.status === 'rejected' ? 'text-danger' : 'text-warning'}`}>{order.remarks}</span>
                       </div>
                     )}
                   </div>
                   <div className="flex flex-col gap-2">
                     {order.status === 'pending' && (
                       <>
-                        <button className="btn-primary text-xs px-3 py-1.5">开始检验</button>
+                        <button onClick={() => handleStartInspection(order.id)} className="btn-primary text-xs px-3 py-1.5">开始检验</button>
                         <button className="btn-secondary text-xs px-3 py-1.5">详情</button>
                       </>
                     )}
                     {order.status === 'inspecting' && (
                       <>
-                        <button className="btn-primary text-xs px-3 py-1.5">检验通过</button>
-                        <button className="btn-danger text-xs px-3 py-1.5">检验拒收</button>
+                        <button onClick={() => handleOpenApprove(order.id)} className="btn-primary text-xs px-3 py-1.5">检验通过</button>
+                        <button onClick={() => handleOpenReject(order.id)} className="btn-danger text-xs px-3 py-1.5">检验拒收</button>
                       </>
                     )}
                     {(order.status === 'approved' || order.status === 'completed') && (

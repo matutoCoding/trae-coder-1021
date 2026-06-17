@@ -68,7 +68,7 @@ export interface OutboundOrder {
   id: string
   order_no: string
   out_date: string
-  status: 'pending' | 'approved' | 'dispatched' | 'completed'
+  status: 'pending' | 'approved' | 'dispatched' | 'completed' | 'rejected'
   goods_id: string
   goods_name: string
   quantity: number
@@ -81,6 +81,7 @@ export interface OutboundOrder {
   route: string
   approver: string
   approve_date: string
+  reject_reason: string
 }
 
 export interface SafetyDevice {
@@ -155,6 +156,8 @@ export interface SupervisionReport {
   content: string
   records_count: number
   fail_reason: string
+  receipt_no: string
+  receipt_time: string
 }
 
 export interface GasSensor {

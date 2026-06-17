@@ -367,6 +367,7 @@ export const mockOutboundOrders: OutboundOrder[] = [
     route: '港区→G15→杭州',
     approver: '赵经理',
     approve_date: '2026-06-15',
+    reject_reason: '',
   },
   {
     id: '2',
@@ -385,6 +386,7 @@ export const mockOutboundOrders: OutboundOrder[] = [
     route: '港区→G2→苏州',
     approver: '赵经理',
     approve_date: '2026-06-16',
+    reject_reason: '',
   },
   {
     id: '3',
@@ -403,6 +405,7 @@ export const mockOutboundOrders: OutboundOrder[] = [
     route: '',
     approver: '孙主任',
     approve_date: '2026-06-17',
+    reject_reason: '',
   },
   {
     id: '4',
@@ -421,6 +424,7 @@ export const mockOutboundOrders: OutboundOrder[] = [
     route: '',
     approver: '',
     approve_date: '',
+    reject_reason: '',
   },
 ]
 
@@ -552,12 +556,12 @@ export const mockAccidentReports: AccidentReport[] = [
 ]
 
 export const mockSupervisionReports: SupervisionReport[] = [
-  { id: '1', report_type: '入库数据', report_date: '2026-06-16', report_time: '18:00', status: '已上报', content: '危化品入库数据汇总', records_count: 12, fail_reason: '' },
-  { id: '2', report_type: '出库数据', report_date: '2026-06-16', report_time: '18:05', status: '已上报', content: '危化品出库数据汇总', records_count: 8, fail_reason: '' },
-  { id: '3', report_type: '库存数据', report_date: '2026-06-16', report_time: '18:10', status: '已上报', content: '库存盘点数据', records_count: 45, fail_reason: '' },
-  { id: '4', report_type: '安全数据', report_date: '2026-06-17', report_time: '08:00', status: '上报中', content: '安全监测数据', records_count: 120, fail_reason: '' },
-  { id: '5', report_type: '异常事件', report_date: '2026-06-10', report_time: '14:30', status: '上报失败', content: '储罐区温度异常', records_count: 1, fail_reason: '网络超时，等待重试' },
-  { id: '6', report_type: '入库数据', report_date: '2026-06-17', report_time: '10:00', status: '待上报', content: '今日入库数据', records_count: 3, fail_reason: '' },
+  { id: '1', report_type: '入库数据', report_date: '2026-06-16', report_time: '18:00', status: '已上报', content: '危化品入库数据汇总', records_count: 12, fail_reason: '', receipt_no: 'RCP20260616180001', receipt_time: '2026-06-16 18:01' },
+  { id: '2', report_type: '出库数据', report_date: '2026-06-16', report_time: '18:05', status: '已上报', content: '危化品出库数据汇总', records_count: 8, fail_reason: '', receipt_no: 'RCP20260616180501', receipt_time: '2026-06-16 18:06' },
+  { id: '3', report_type: '库存数据', report_date: '2026-06-16', report_time: '18:10', status: '已上报', content: '库存盘点数据', records_count: 45, fail_reason: '', receipt_no: 'RCP20260616181001', receipt_time: '2026-06-16 18:11' },
+  { id: '4', report_type: '安全数据', report_date: '2026-06-17', report_time: '08:00', status: '上报中', content: '安全监测数据', records_count: 120, fail_reason: '', receipt_no: '', receipt_time: '' },
+  { id: '5', report_type: '异常事件', report_date: '2026-06-10', report_time: '14:30', status: '上报失败', content: '储罐区温度异常', records_count: 1, fail_reason: '网络超时，等待重试', receipt_no: '', receipt_time: '' },
+  { id: '6', report_type: '入库数据', report_date: '2026-06-17', report_time: '10:00', status: '待上报', content: '今日入库数据', records_count: 3, fail_reason: '', receipt_no: '', receipt_time: '' },
 ]
 
 export const mockGasSensors: GasSensor[] = [

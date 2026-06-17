@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Plus, Search, Truck, User, MapPin, Check, Clock, X, FileText, QrCode, Phone } from 'lucide-react'
+import { Plus, Search, Truck, User, MapPin, Check, Clock, X, FileText, QrCode, Phone, AlertTriangle } from 'lucide-react'
 import { useAppStore } from '@/store'
 
 const statusConfig: Record<string, { label: string; color: string; bg: string }> = {
@@ -7,14 +7,27 @@ const statusConfig: Record<string, { label: string; color: string; bg: string }>
   approved: { label: '已审批', color: 'text-primary-600', bg: 'bg-blue-100' },
   dispatched: { label: '配送中', color: 'text-warning', bg: 'bg-amber-100' },
   completed: { label: '已完成', color: 'text-success', bg: 'bg-green-100' },
+  rejected: { label: '已驳回', color: 'text-danger', bg: 'bg-red-100' },
 }
 
 export default function Outbound() {
   const [showForm, setShowForm] = useState(false)
+  const [showRejectModal, setShowRejectModal] = useState(false)
+  const [showDispatchModal, setShowDispatchModal] = useState(false)
   const [activeTab, setActiveTab] = useState('all')
+  const [activeOrderId, setActiveOrderId] = useState<string | null>(null)
+  const [rejectReason, setRejectReason] = useState('')
+  const [dispatchData, setDispatchData] = useState({
+    vehicle_no: '',
+    driver: '',
+    supervisor: '',
+    route: '',
+  })
   const outboundOrders = useAppStore((s) => s.outboundOrders)
   const hazardousGoods = useAppStore((s) => s.hazardousGoods)
   const addOutboundOrder = useAppStore((s) => s.addOutboundOrder)
+  const updateOutboundOrder = useAppStore((s) => s.updateOutboundOrder)
+  const currentUser = useAppStore((s) => s.currentUser)
 
   const [formData, setFormData] = useState({
     goods_id: '',
@@ -46,9 +59,59 @@ export default function Outbound() {
       route: '',
       approver: '',
       approve_date: '',
+      reject_reason: '',
     })
     setShowForm(false)
     setFormData({ goods_id: '', goods_name: '', quantity: 0, unit: 'L', receiver: '', purpose: '' })
+  }
+
+  const handleApprove = (id: string) => {
+    updateOutboundOrder(id, {
+      status: 'approved',
+      approver: currentUser.name,
+      approve_date: new Date().toISOString().split('T')[0],
+    })
+  }
+
+  const handleReject = () => {
+    if (!activeOrderId || !rejectReason.trim()) return
+    updateOutboundOrder(activeOrderId, {
+      status: 'rejected',
+      reject_reason: rejectReason.trim(),
+    })
+    setShowRejectModal(false)
+    setRejectReason('')
+    setActiveOrderId(null)
+  }
+
+  const handleDispatch = () => {
+    if (!activeOrderId) return
+    updateOutboundOrder(activeOrderId, {
+      status: 'dispatched',
+      vehicle_no: dispatchData.vehicle_no,
+      driver: dispatchData.driver,
+      supervisor: dispatchData.supervisor,
+      route: dispatchData.route,
+    })
+    setShowDispatchModal(false)
+    setDispatchData({ vehicle_no: '', driver: '', supervisor: '', route: '' })
+    setActiveOrderId(null)
+  }
+
+  const handleComplete = (id: string) => {
+    updateOutboundOrder(id, { status: 'completed' })
+  }
+
+  const openRejectModal = (id: string) => {
+    setActiveOrderId(id)
+    setRejectReason('')
+    setShowRejectModal(true)
+  }
+
+  const openDispatchModal = (id: string) => {
+    setActiveOrderId(id)
+    setDispatchData({ vehicle_no: '', driver: '', supervisor: '', route: '' })
+    setShowDispatchModal(true)
   }
 
   return (
@@ -159,6 +222,97 @@ export default function Outbound() {
         </div>
       )}
 
+      {showRejectModal && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl w-full max-w-md shadow-xl">
+            <div className="p-5 border-b border-gray-100 flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-gray-800">驳回出库申请</h2>
+              <button onClick={() => { setShowRejectModal(false); setRejectReason(''); setActiveOrderId(null) }} className="p-1 hover:bg-gray-100 rounded">
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+            <div className="p-5 space-y-4">
+              <div>
+                <label className="block text-sm text-gray-600 mb-1">驳回原因 <span className="text-danger">*</span></label>
+                <textarea
+                  value={rejectReason}
+                  onChange={(e) => setRejectReason(e.target.value)}
+                  className="input-field min-h-[100px] resize-none"
+                  placeholder="请输入驳回原因..."
+                />
+              </div>
+            </div>
+            <div className="p-5 border-t border-gray-100 flex justify-end gap-3">
+              <button onClick={() => { setShowRejectModal(false); setRejectReason(''); setActiveOrderId(null) }} className="btn-secondary">取消</button>
+              <button onClick={handleReject} className="btn-danger" disabled={!rejectReason.trim()}>确认驳回</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showDispatchModal && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl w-full max-w-lg shadow-xl">
+            <div className="p-5 border-b border-gray-100 flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-gray-800">调度配送</h2>
+              <button onClick={() => { setShowDispatchModal(false); setDispatchData({ vehicle_no: '', driver: '', supervisor: '', route: '' }); setActiveOrderId(null) }} className="p-1 hover:bg-gray-100 rounded">
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+            <div className="p-5 space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm text-gray-600 mb-1">车牌号</label>
+                  <input
+                    type="text"
+                    value={dispatchData.vehicle_no}
+                    onChange={(e) => setDispatchData({ ...dispatchData, vehicle_no: e.target.value })}
+                    className="input-field"
+                    placeholder="如 京A12345"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-600 mb-1">司机</label>
+                  <input
+                    type="text"
+                    value={dispatchData.driver}
+                    onChange={(e) => setDispatchData({ ...dispatchData, driver: e.target.value })}
+                    className="input-field"
+                    placeholder="请输入司机姓名"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm text-gray-600 mb-1">押运员</label>
+                  <input
+                    type="text"
+                    value={dispatchData.supervisor}
+                    onChange={(e) => setDispatchData({ ...dispatchData, supervisor: e.target.value })}
+                    className="input-field"
+                    placeholder="请输入押运员姓名"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-600 mb-1">配送路线</label>
+                  <input
+                    type="text"
+                    value={dispatchData.route}
+                    onChange={(e) => setDispatchData({ ...dispatchData, route: e.target.value })}
+                    className="input-field"
+                    placeholder="如 仓库→A路段→收货方"
+                  />
+                </div>
+              </div>
+            </div>
+            <div className="p-5 border-t border-gray-100 flex justify-end gap-3">
+              <button onClick={() => { setShowDispatchModal(false); setDispatchData({ vehicle_no: '', driver: '', supervisor: '', route: '' }); setActiveOrderId(null) }} className="btn-secondary">取消</button>
+              <button onClick={handleDispatch} className="btn-primary" disabled={!dispatchData.vehicle_no || !dispatchData.driver}>确认调度</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="card">
         <div className="p-4 border-b border-gray-100">
           <div className="flex flex-wrap items-center gap-3">
@@ -169,6 +323,7 @@ export default function Outbound() {
                 { key: 'approved', label: '已审批' },
                 { key: 'dispatched', label: '配送中' },
                 { key: 'completed', label: '已完成' },
+                { key: 'rejected', label: '已驳回' },
               ].map((tab) => (
                 <button
                   key={tab.key}
@@ -235,6 +390,16 @@ export default function Outbound() {
                       </div>
                     </div>
 
+                    {order.status === 'rejected' && order.reject_reason && (
+                      <div className="mt-4 p-3 bg-red-50 rounded-lg border border-red-100">
+                        <div className="flex items-center gap-2">
+                          <AlertTriangle className="w-4 h-4 text-danger" />
+                          <span className="text-xs font-medium text-danger">驳回原因</span>
+                        </div>
+                        <p className="text-sm text-red-700 mt-1">{order.reject_reason}</p>
+                      </div>
+                    )}
+
                     {(order.status === 'approved' || order.status === 'dispatched') && (
                       <div className="mt-4 p-3 bg-primary-50 rounded-lg border border-primary-100">
                         <div className="flex items-center gap-3 flex-wrap">
@@ -257,15 +422,15 @@ export default function Outbound() {
                   <div className="flex flex-col gap-2 ml-4">
                     {order.status === 'pending' && (
                       <>
-                        <button className="btn-primary text-xs px-3 py-1.5">审批通过</button>
-                        <button className="btn-danger text-xs px-3 py-1.5">驳回</button>
+                        <button onClick={() => handleApprove(order.id)} className="btn-primary text-xs px-3 py-1.5">审批通过</button>
+                        <button onClick={() => openRejectModal(order.id)} className="btn-danger text-xs px-3 py-1.5">驳回</button>
                       </>
                     )}
                     {order.status === 'approved' && (
-                      <button className="btn-primary text-xs px-3 py-1.5">调度配送</button>
+                      <button onClick={() => openDispatchModal(order.id)} className="btn-primary text-xs px-3 py-1.5">调度配送</button>
                     )}
                     {order.status === 'dispatched' && (
-                      <button className="btn-primary text-xs px-3 py-1.5">确认送达</button>
+                      <button onClick={() => handleComplete(order.id)} className="btn-primary text-xs px-3 py-1.5">确认送达</button>
                     )}
                     <button className="btn-secondary text-xs px-3 py-1.5">查看详情</button>
                   </div>
@@ -273,7 +438,7 @@ export default function Outbound() {
 
                 <div className="mt-4 flex items-center gap-2">
                   {[
-                    { label: '申请提交', done: true },
+                    { label: '申请提交', done: order.status !== 'pending' || true },
                     { label: '仓库审批', done: order.status !== 'pending' },
                     { label: '安全复核', done: order.status === 'approved' || order.status === 'dispatched' || order.status === 'completed' },
                     { label: '配送调度', done: order.status === 'dispatched' || order.status === 'completed' },
@@ -281,12 +446,12 @@ export default function Outbound() {
                   ].map((step, i, arr) => (
                     <div key={i} className="flex items-center gap-2 flex-1">
                       <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium ${
-                        step.done ? 'bg-success text-white' : 'bg-gray-200 text-gray-500'
+                        step.done ? (order.status === 'rejected' && i > 0 ? 'bg-red-400 text-white' : 'bg-success text-white') : 'bg-gray-200 text-gray-500'
                       }`}>
-                        {step.done ? <Check className="w-3.5 h-3.5" /> : <Clock className="w-3.5 h-3.5" />}
+                        {order.status === 'rejected' && i > 0 && step.done ? <X className="w-3.5 h-3.5" /> : step.done ? <Check className="w-3.5 h-3.5" /> : <Clock className="w-3.5 h-3.5" />}
                       </div>
-                      <span className={`text-xs ${step.done ? 'text-gray-700' : 'text-gray-400'}`}>{step.label}</span>
-                      {i < arr.length - 1 && <div className={`flex-1 h-0.5 ${step.done ? 'bg-success' : 'bg-gray-200'}`} />}
+                      <span className={`text-xs ${step.done ? (order.status === 'rejected' && i > 0 ? 'text-red-500' : 'text-gray-700') : 'text-gray-400'}`}>{step.label}</span>
+                      {i < arr.length - 1 && <div className={`flex-1 h-0.5 ${step.done ? (order.status === 'rejected' && i > 0 ? 'bg-red-400' : 'bg-success') : 'bg-gray-200'}`} />}
                     </div>
                   ))}
                 </div>

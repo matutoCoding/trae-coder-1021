@@ -49,9 +49,61 @@ export default function Supervision() {
   const warehousingOrders = useAppStore((s) => s.warehousingOrders)
   const outboundOrders = useAppStore((s) => s.outboundOrders)
   const hazardousGoods = useAppStore((s) => s.hazardousGoods)
+  const updateSupervisionReport = useAppStore((s) => s.updateSupervisionReport)
+  const batchUpdateSupervisionReports = useAppStore((s) => s.batchUpdateSupervisionReports)
 
   const pendingCount = supervisionReports.filter((r) => r.status === '待上报').length
   const failCount = supervisionReports.filter((r) => r.status === '上报失败').length
+
+  const uploadReport = (id: string) => {
+    updateSupervisionReport(id, { status: '上报中', fail_reason: '' })
+    setTimeout(() => {
+      const now = new Date()
+      const receipt_no = 'RCP' + now.getTime()
+      const receipt_time = now.toLocaleString('zh-CN', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      })
+      updateSupervisionReport(id, {
+        status: '已上报',
+        receipt_no,
+        receipt_time,
+        fail_reason: '',
+      })
+    }, 2000)
+  }
+
+  const batchUploadReports = () => {
+    const pendingReports = supervisionReports.filter(
+      (r) => r.status === '待上报' || r.status === '上报失败'
+    )
+    if (pendingReports.length === 0) return
+    const ids = pendingReports.map((r) => r.id)
+    batchUpdateSupervisionReports(ids, { status: '上报中', fail_reason: '' })
+    setTimeout(() => {
+      const now = new Date()
+      pendingReports.forEach((r, index) => {
+        const reportTime = new Date(now.getTime() + index)
+        updateSupervisionReport(r.id, {
+          status: '已上报',
+          receipt_no: 'RCP' + reportTime.getTime(),
+          receipt_time: reportTime.toLocaleString('zh-CN', {
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+          }),
+          fail_reason: '',
+        })
+      })
+    }, 2000)
+  }
 
   const monthlyData = [
     { month: '1月', 入库: 45, 出库: 38 },
@@ -159,7 +211,11 @@ export default function Supervision() {
                 </div>
               ))}
           </div>
-          <button className="w-full py-2.5 bg-white text-primary-700 rounded-lg font-medium hover:bg-primary-50 transition-colors flex items-center justify-center gap-2">
+          <button
+            onClick={batchUploadReports}
+            disabled={pendingCount + failCount === 0}
+            className="w-full py-2.5 bg-white text-primary-700 rounded-lg font-medium hover:bg-primary-50 transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
             <Upload className="w-4 h-4" />
             立即上报 ({pendingCount + failCount}项)
           </button>
@@ -229,16 +285,25 @@ export default function Supervision() {
                               <Icon className={`w-3 h-3 ${report.status === '上报中' ? 'animate-spin' : ''}`} />
                               {config.label}
                             </span>
-                            {report.status === '上报失败' && (
+                            {report.status === '已上报' && report.receipt_no && (
+                              <div className="mt-1 text-xs text-gray-500">
+                                <div>回执号: {report.receipt_no}</div>
+                                <div>回执时间: {report.receipt_time}</div>
+                              </div>
+                            )}
+                            {report.status === '上报失败' && report.fail_reason && (
                               <p className="text-xs text-danger mt-1">{report.fail_reason}</p>
                             )}
                           </td>
                           <td className="table-cell text-center">
                             <div className="flex items-center justify-center gap-2">
                               {(report.status === '待上报' || report.status === '上报失败') && (
-                                <button className="text-primary-600 hover:text-primary-700 text-xs flex items-center gap-0.5">
+                                <button
+                                  onClick={() => uploadReport(report.id)}
+                                  className="text-primary-600 hover:text-primary-700 text-xs flex items-center gap-0.5"
+                                >
                                   <Send className="w-3.5 h-3.5" />
-                                  上报
+                                  {report.status === '上报失败' ? '重新上报' : '上报'}
                                 </button>
                               )}
                               {report.status === '已上报' && (
