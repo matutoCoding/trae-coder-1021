@@ -312,39 +312,68 @@ export const mockWarehouses: Warehouse[] = [
 
 export const generateStorageLocations = (warehouses: Warehouse[]): StorageLocation[] => {
   const locations: StorageLocation[] = []
-  const goodsMapping: Record<string, { id: string; name: string }> = {
-    '1-A': { id: '1', name: '甲苯' },
-    '1-B': { id: '2', name: '乙醇' },
-    '1-C': { id: '7', name: '汽油' },
-    '2-A': { id: '4', name: '液氨' },
-    '2-B': { id: '5', name: '高锰酸钾' },
-    '3-A': { id: '3', name: '浓硫酸' },
-    '3-B': { id: '6', name: '氰化钠' },
-    '3-C': { id: '8', name: '硝酸' },
+  const goodsMapping: Record<string, { id: string; name: string; batch: string; orderNo: string; inDate: string }[]> = {
+    '1-A': [
+      { id: '1', name: '甲苯', batch: 'B2026061501', orderNo: 'RK20260615001', inDate: '2026-06-15' },
+      { id: '1', name: '甲苯', batch: 'B2026061001', orderNo: 'RK20260610001', inDate: '2026-06-10' },
+    ],
+    '1-B': [
+      { id: '2', name: '乙醇', batch: 'B2026061601', orderNo: 'RK20260616001', inDate: '2026-06-16' },
+    ],
+    '1-C': [
+      { id: '7', name: '汽油', batch: 'B2026061201', orderNo: 'RK20260612001', inDate: '2026-06-12' },
+    ],
+    '2-A': [
+      { id: '4', name: '液氨', batch: 'B2026061301', orderNo: 'RK20260613001', inDate: '2026-06-13' },
+    ],
+    '2-B': [
+      { id: '5', name: '高锰酸钾', batch: 'B2026061101', orderNo: 'RK20260611001', inDate: '2026-06-11' },
+    ],
+    '3-A': [
+      { id: '3', name: '浓硫酸', batch: 'B2026061401', orderNo: 'RK20260614001', inDate: '2026-06-14' },
+    ],
+    '3-B': [
+      { id: '6', name: '氰化钠', batch: 'B2026060901', orderNo: 'RK20260609001', inDate: '2026-06-09' },
+    ],
+    '3-C': [
+      { id: '8', name: '硝酸', batch: 'B2026060801', orderNo: 'RK20260608001', inDate: '2026-06-08' },
+    ],
   }
-  
+
+  let locCounter = 0
   warehouses.forEach((wh) => {
     for (let row = 1; row <= 3; row++) {
       for (let col = 1; col <= 4; col++) {
         const key = `${wh.id}-${String.fromCharCode(64 + row)}`
-        const goods = goodsMapping[key] || null
-        const isOccupied = Math.random() > 0.3
-        const used = isOccupied ? Math.floor(Math.random() * 800) + 200 : 0
-        
+        const batchData = goodsMapping[key] || null
+        const batches: StorageLocation['batches'] = []
+        let used = 0
+        if (batchData && col <= 2) {
+          for (const b of batchData) {
+            const qty = Math.floor(Math.random() * 400) + 200
+            batches.push({
+              batch_no: b.batch,
+              goods_id: b.id,
+              goods_name: b.name,
+              quantity: qty,
+              warehousing_order_id: `mock-${++locCounter}`,
+              warehousing_order_no: b.orderNo,
+              in_date: b.inDate,
+            })
+            used += qty
+          }
+        }
+
         locations.push({
           id: `${wh.id}-${row}-${col}`,
           warehouse_id: wh.id,
           code: `${wh.zone}-${String.fromCharCode(64 + row)}${col.toString().padStart(2, '0')}`,
           row,
           col,
-          goods_id: goods?.id || '',
-          goods_name: goods?.name || '',
-          batch_no: goods ? `B${Date.now()}` : '',
-          warehousing_order_id: goods ? Date.now().toString() : '',
-          warehousing_order_no: goods ? `RK2026061500${col}` : '',
           capacity: 1000,
           used_capacity: used,
           status: used === 0 ? 'empty' : used >= 900 ? 'full' : 'partial',
+          batches,
         })
       }
     }
@@ -371,6 +400,7 @@ export const mockOutboundOrders: OutboundOrder[] = [
     approver: '赵经理',
     approve_date: '2026-06-15',
     reject_reason: '',
+    batch_allocations: [{ batch_no: 'B2026061001', location_id: '1-1-1', location_code: 'A-A101', quantity: 500 }],
   },
   {
     id: '2',
@@ -390,6 +420,7 @@ export const mockOutboundOrders: OutboundOrder[] = [
     approver: '赵经理',
     approve_date: '2026-06-16',
     reject_reason: '',
+    batch_allocations: [{ batch_no: 'B2026061601', location_id: '1-2-1', location_code: 'A-B101', quantity: 1000 }],
   },
   {
     id: '3',
@@ -409,6 +440,7 @@ export const mockOutboundOrders: OutboundOrder[] = [
     approver: '孙主任',
     approve_date: '2026-06-17',
     reject_reason: '',
+    batch_allocations: [],
   },
   {
     id: '4',
@@ -428,6 +460,7 @@ export const mockOutboundOrders: OutboundOrder[] = [
     approver: '',
     approve_date: '',
     reject_reason: '',
+    batch_allocations: [],
   },
 ]
 

@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { Thermometer, Droplets, Wind, Package, AlertTriangle, CheckCircle, Layers, Grid3x3, X, MapPin, Warehouse, Tag, Hash, FileText, Box, Activity } from 'lucide-react'
+import { Thermometer, Droplets, Wind, Package, AlertTriangle, CheckCircle, Layers, Grid3x3, X, MapPin, Warehouse, Tag, Box, Activity } from 'lucide-react'
 import { useAppStore } from '@/store'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import { generateTemperatureHistory } from '@/data/mockData'
-import type { StorageLocation } from '@/types'
+import type { StorageLocation, LocationBatch } from '@/types'
 
 const statusColor: Record<string, string> = {
   normal: 'bg-success',
@@ -224,8 +224,11 @@ export default function Storage() {
                                 className={`relative aspect-square rounded border-2 ${color} flex flex-col items-center justify-center cursor-pointer hover:ring-2 hover:ring-primary-400 transition-all group`}
                               >
                                 <span className="text-[10px] font-medium text-gray-700">{loc.code}</span>
-                                {loc.goods_name && (
-                                  <span className="text-[9px] text-gray-600 mt-0.5 truncate w-full text-center px-1">{loc.goods_name}</span>
+                                {loc.batches.length > 1 && (
+                                  <span className="text-[9px] text-gray-600 mt-0.5">{loc.batches.length}批次</span>
+                                )}
+                                {loc.batches.length === 1 && (
+                                  <span className="text-[9px] text-gray-600 mt-0.5 truncate w-full text-center px-1">{loc.batches[0].goods_name}</span>
                                 )}
                                 {loc.used_capacity > 0 && (
                                   <span className="text-[9px] text-gray-500">{loc.used_capacity}/{loc.capacity}</span>
@@ -239,7 +242,7 @@ export default function Storage() {
                                 <div className="absolute inset-0 bg-black/70 rounded opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center p-1">
                                   <div className="text-white text-[10px] text-center">
                                     <div className="font-medium">{loc.code}</div>
-                                    <div>{loc.goods_name || '空库位'}</div>
+                                    <div>{loc.batches.length > 0 ? (loc.batches.length > 1 ? `${loc.batches.length}批次` : loc.batches[0].goods_name) : '空库位'}</div>
                                     <div>{loc.used_capacity}/{loc.capacity}</div>
                                   </div>
                                 </div>
@@ -377,7 +380,7 @@ export default function Storage() {
                 </div>
               </div>
 
-              {selectedLocation.status === 'empty' ? (
+              {selectedLocation.batches.length === 0 ? (
                 <div className="py-12 text-center">
                   <Box className="w-16 h-16 text-gray-300 mx-auto mb-3" />
                   <p className="text-gray-500 font-medium">该库位暂无货品</p>
@@ -385,34 +388,36 @@ export default function Storage() {
                 </div>
               ) : (
                 <>
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-1.5 text-xs text-gray-500">
-                      <Package className="w-3.5 h-3.5" />
-                      货品名称
-                    </div>
-                    <p className="text-sm font-semibold text-gray-800">{selectedLocation.goods_name}</p>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-1.5 text-xs text-gray-500">
-                        <Hash className="w-3.5 h-3.5" />
-                        批次号
-                      </div>
-                      <p className="text-sm font-medium text-gray-800">{selectedLocation.batch_no}</p>
-                    </div>
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-1.5 text-xs text-gray-500">
-                        <FileText className="w-3.5 h-3.5" />
-                        来源入库单
-                      </div>
-                      <button
-                        onClick={() => navigate(`/warehousing?order_id=${selectedLocation.warehousing_order_id}`)}
-                        className="text-sm font-medium text-primary-600 hover:text-primary-700 hover:underline"
-                      >
-                        {selectedLocation.warehousing_order_no}
-                      </button>
-                    </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-gray-200">
+                          <th className="text-left py-2 px-2 text-xs font-medium text-gray-500">批次号</th>
+                          <th className="text-left py-2 px-2 text-xs font-medium text-gray-500">货品名称</th>
+                          <th className="text-left py-2 px-2 text-xs font-medium text-gray-500">数量</th>
+                          <th className="text-left py-2 px-2 text-xs font-medium text-gray-500">来源入库单</th>
+                          <th className="text-left py-2 px-2 text-xs font-medium text-gray-500">入库日期</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {selectedLocation.batches.map((batch: LocationBatch) => (
+                          <tr key={batch.batch_no} className="border-b border-gray-100 last:border-0">
+                            <td className="py-2 px-2 text-gray-700">{batch.batch_no}</td>
+                            <td className="py-2 px-2 text-gray-700">{batch.goods_name}</td>
+                            <td className="py-2 px-2 text-gray-700">{batch.quantity}</td>
+                            <td className="py-2 px-2">
+                              <button
+                                onClick={() => navigate(`/warehousing?order_id=${batch.warehousing_order_id}`)}
+                                className="text-primary-600 hover:text-primary-700 hover:underline"
+                              >
+                                {batch.warehousing_order_no}
+                              </button>
+                            </td>
+                            <td className="py-2 px-2 text-gray-700">{batch.in_date}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
 
                   <div className="space-y-2">

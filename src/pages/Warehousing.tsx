@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Plus, Search, Check, X, Clock, AlertCircle, ShieldAlert, FileCheck, User, MapPin, ExternalLink } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useAppStore } from '@/store'
@@ -23,7 +23,8 @@ interface ApproveFormData {
   inspector: string
   inspection_result: string
   warehouse_id: string
-  location_code: string
+  location_id: string
+  quantity: number
 }
 
 interface RejectFormData {
@@ -35,7 +36,8 @@ const defaultApproveForm: ApproveFormData = {
   inspector: '张伟',
   inspection_result: '合格',
   warehouse_id: '',
-  location_code: '',
+  location_id: '',
+  quantity: 0,
 }
 
 const defaultRejectForm: RejectFormData = {
@@ -51,11 +53,12 @@ export default function Warehousing() {
   const [activeOrderId, setActiveOrderId] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
   const warehousingOrders = useAppStore((s) => s.warehousingOrders)
-  const hazardousGoods = useAppStore((s) => s.hazardousGoods)
   const warehouses = useAppStore((s) => s.warehouses)
+  const hazardousGoods = useAppStore((s) => s.hazardousGoods)
   const addWarehousingOrder = useAppStore((s) => s.addWarehousingOrder)
   const updateWarehousingOrder = useAppStore((s) => s.updateWarehousingOrder)
   const processWarehousingApproval = useAppStore((s) => s.processWarehousingApproval)
+  const getAvailableLocationsForWarehouse = useAppStore((s) => s.getAvailableLocationsForWarehouse)
   const navigate = useNavigate()
 
   const [formData, setFormData] = useState({
@@ -70,6 +73,18 @@ export default function Warehousing() {
 
   const [approveForm, setApproveForm] = useState<ApproveFormData>(defaultApproveForm)
   const [rejectForm, setRejectForm] = useState<RejectFormData>(defaultRejectForm)
+  const [availableLocations, setAvailableLocations] = useState<import('@/types').StorageLocation[]>([])
+
+  useEffect(() => {
+    if (approveForm.warehouse_id) {
+      const locations = getAvailableLocationsForWarehouse(approveForm.warehouse_id)
+      setAvailableLocations(locations)
+      setApproveForm((prev) => ({ ...prev, location_id: '' }))
+    } else {
+      setAvailableLocations([])
+      setApproveForm((prev) => ({ ...prev, location_id: '' }))
+    }
+  }, [approveForm.warehouse_id, getAvailableLocationsForWarehouse])
 
   const filteredOrders = warehousingOrders.filter((o) => {
     const matchTab = activeTab === 'all' || o.status === activeTab
@@ -108,8 +123,10 @@ export default function Warehousing() {
   }
 
   const handleOpenApprove = (id: string) => {
+    const order = warehousingOrders.find((o) => o.id === id)
     setActiveOrderId(id)
-    setApproveForm({ ...defaultApproveForm })
+    setApproveForm({ ...defaultApproveForm, quantity: order?.quantity || 0 })
+    setAvailableLocations([])
     setShowApproveModal(true)
   }
 
@@ -120,19 +137,27 @@ export default function Warehousing() {
   }
 
   const handleApproveSubmit = () => {
-    if (!activeOrderId || !approveForm.inspector || !approveForm.warehouse_id || !approveForm.location_code) return
+    if (!activeOrderId || !approveForm.inspector || !approveForm.warehouse_id || !approveForm.location_id || approveForm.quantity <= 0) return
     const order = warehousingOrders.find((o) => o.id === activeOrderId)
     if (!order) return
-    processWarehousingApproval(activeOrderId, {
-      status: 'approved',
+    const result = processWarehousingApproval(activeOrderId, {
       inspector: approveForm.inspector,
       inspection_result: approveForm.inspection_result,
       inspection_date: new Date().toISOString().split('T')[0],
       warehouse_id: approveForm.warehouse_id,
-      location_code: approveForm.location_code,
-      quantity: order.quantity,
+      location_id: approveForm.location_id,
+      quantity: approveForm.quantity,
       goods_id: order.goods_id,
+      goods_name: order.goods_name,
+      batch_no: order.batch_no,
+      warehousing_order_id: order.id,
+      warehousing_order_no: order.order_no,
+      in_date: order.in_date,
     })
+    if (!result.success) {
+      alert(result.message)
+      return
+    }
     setShowApproveModal(false)
     setActiveOrderId(null)
   }
@@ -334,20 +359,36 @@ export default function Warehousing() {
                 </select>
               </div>
               <div>
-                <label className="block text-sm text-gray-600 mb-1">库位编码 <span className="text-danger">*</span></label>
-                <input
-                  type="text"
-                  value={approveForm.location_code}
-                  onChange={(e) => setApproveForm({ ...approveForm, location_code: e.target.value })}
+                <label className="block text-sm text-gray-600 mb-1">入库库位 <span className="text-danger">*</span></label>
+                <select
+                  value={approveForm.location_id}
+                  onChange={(e) => setApproveForm({ ...approveForm, location_id: e.target.value })}
                   className="input-field"
-                  placeholder="如 A-01-03"
                   required
+                  disabled={!approveForm.warehouse_id}
+                >
+                  <option value="">{approveForm.warehouse_id ? '请选择库位' : '请先选择仓库'}</option>
+                  {availableLocations.map((loc) => (
+                    <option key={loc.id} value={loc.id}>
+                      {loc.code} ({loc.status === 'empty' ? '空闲' : `已用${loc.used_capacity}/${loc.capacity}`})
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm text-gray-600 mb-1">入库数量 <span className="text-danger">*</span></label>
+                <input
+                  type="number"
+                  value={approveForm.quantity}
+                  onChange={(e) => setApproveForm({ ...approveForm, quantity: Number(e.target.value) })}
+                  className="input-field"
+                  min="1"
                 />
               </div>
             </div>
             <div className="p-5 border-t border-gray-100 flex justify-end gap-3">
               <button onClick={() => { setShowApproveModal(false); setActiveOrderId(null) }} className="btn-secondary">取消</button>
-              <button onClick={handleApproveSubmit} className="btn-primary" disabled={!approveForm.location_code || !approveForm.warehouse_id}>确认入库</button>
+              <button onClick={handleApproveSubmit} className="btn-primary" disabled={!approveForm.location_id || !approveForm.warehouse_id || approveForm.quantity <= 0}>确认入库</button>
             </div>
           </div>
         </div>

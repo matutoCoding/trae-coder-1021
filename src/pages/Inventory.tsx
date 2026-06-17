@@ -1,13 +1,25 @@
 import { useState, useMemo } from 'react'
-import { Search, Filter, AlertTriangle, TrendingDown, TrendingUp, Package, ChevronRight, FileText, Download } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { Search, Filter, AlertTriangle, TrendingDown, TrendingUp, Package, ChevronRight, FileText, Download, ExternalLink, X } from 'lucide-react'
 import { useAppStore } from '@/store'
+import type { BatchInventory } from '@/types'
 
 const hazardClasses = ['全部', '爆炸品', '压缩气体', '易燃液体', '易燃固体', '氧化性物质', '毒性物质', '腐蚀性物质']
 
 export default function Inventory() {
+  const navigate = useNavigate()
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedHazardClass, setSelectedHazardClass] = useState('全部')
+  const [selectedGoodsId, setSelectedGoodsId] = useState<string | null>(null)
+  const [showBatchModal, setShowBatchModal] = useState(false)
   const hazardousGoods = useAppStore((s) => s.hazardousGoods)
+  const getBatchesForGoods = useAppStore((s) => s.getBatchesForGoods)
+
+  const selectedGoods = hazardousGoods.find((g) => g.id === selectedGoodsId)
+  const batches = useMemo(() => {
+    if (!selectedGoodsId) return []
+    return getBatchesForGoods(selectedGoodsId)
+  }, [selectedGoodsId, getBatchesForGoods])
 
   const stats = useMemo(() => {
     const total = hazardousGoods.reduce((sum, g) => sum + g.stock_quantity, 0)
@@ -28,6 +40,18 @@ export default function Inventory() {
       return matchSearch && matchClass
     })
   }, [hazardousGoods, searchTerm, selectedHazardClass])
+
+  const handleGoodsClick = (goodsId: string) => {
+    setSelectedGoodsId(goodsId)
+    setShowBatchModal(true)
+  }
+
+  const closeBatchModal = () => {
+    setShowBatchModal(false)
+    setSelectedGoodsId(null)
+  }
+
+  const totalQuantity = batches.reduce((sum, b) => sum + b.remaining_quantity, 0)
 
   return (
     <div className="space-y-6">
@@ -137,7 +161,12 @@ export default function Inventory() {
                 return (
                   <tr key={goods.id} className="hover:bg-gray-50">
                     <td className="table-cell">
-                      <span className="font-medium text-gray-800">{goods.name}</span>
+                      <span
+                        className="font-medium text-blue-600 cursor-pointer hover:underline"
+                        onClick={() => handleGoodsClick(goods.id)}
+                      >
+                        {goods.name}
+                      </span>
                     </td>
                     <td className="table-cell font-mono text-xs text-gray-600">{goods.cas_no}</td>
                     <td className="table-cell font-mono text-xs text-gray-600">{goods.un_no}</td>
@@ -227,6 +256,78 @@ export default function Inventory() {
           </div>
         </div>
       </div>
+
+      {showBatchModal && selectedGoods && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="fixed inset-0 bg-black/50" onClick={closeBatchModal} />
+          <div className="relative bg-white rounded-xl shadow-2xl w-full max-w-4xl mx-4 max-h-[80vh] flex flex-col">
+            <div className="flex items-center justify-between p-5 border-b border-gray-100">
+              <h2 className="text-lg font-bold text-gray-800">{selectedGoods.name} - 批次库存明细</h2>
+              <button
+                onClick={closeBatchModal}
+                className="p-1 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-auto p-5">
+              {batches.length === 0 ? (
+                <div className="text-center py-12 text-gray-400">暂无批次库存</div>
+              ) : (
+                <table className="w-full">
+                  <thead>
+                    <tr className="table-header">
+                      <th className="px-4 py-3 text-left">批次号</th>
+                      <th className="px-4 py-3 text-left">来源入库单</th>
+                      <th className="px-4 py-3 text-left">所在仓库</th>
+                      <th className="px-4 py-3 text-left">库位编码</th>
+                      <th className="px-4 py-3 text-right">剩余数量</th>
+                      <th className="px-4 py-3 text-left">入库日期</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {batches.map((batch: BatchInventory) => (
+                      <tr key={batch.id} className="hover:bg-gray-50">
+                        <td className="table-cell font-mono text-xs text-gray-700">{batch.batch_no}</td>
+                        <td className="table-cell">
+                          <button
+                            onClick={() => navigate('/warehousing')}
+                            className="text-blue-600 hover:underline text-xs flex items-center gap-1"
+                          >
+                            {batch.warehousing_order_no}
+                            <ExternalLink className="w-3 h-3" />
+                          </button>
+                        </td>
+                        <td className="table-cell text-gray-600">{batch.warehouse_name}</td>
+                        <td className="table-cell">
+                          <button
+                            onClick={() => navigate(`/storage?warehouse_id=${batch.warehouse_id}&location_code=${batch.location_code}`)}
+                            className="text-blue-600 hover:underline text-xs flex items-center gap-1"
+                          >
+                            {batch.location_code}
+                            <ExternalLink className="w-3 h-3" />
+                          </button>
+                        </td>
+                        <td className="table-cell text-right font-medium text-gray-800">
+                          {batch.remaining_quantity.toLocaleString()} {batch.unit}
+                        </td>
+                        <td className="table-cell text-gray-600">{batch.in_date}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+            {batches.length > 0 && (
+              <div className="p-4 border-t border-gray-100 bg-gray-50 rounded-b-xl">
+                <p className="text-sm font-medium text-gray-700">
+                  合计: {totalQuantity.toLocaleString()} {selectedGoods.unit}
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -1,6 +1,7 @@
-import { useState } from 'react'
-import { Plus, Search, Truck, User, MapPin, Check, Clock, X, FileText, QrCode, Phone, AlertTriangle } from 'lucide-react'
+import { useState, useMemo } from 'react'
+import { Plus, Search, Truck, User, MapPin, Check, Clock, X, FileText, QrCode, Phone, AlertTriangle, Layers } from 'lucide-react'
 import { useAppStore } from '@/store'
+import type { OutboundBatchAllocation } from '@/types'
 
 const statusConfig: Record<string, { label: string; color: string; bg: string }> = {
   pending: { label: '待审批', color: 'text-gray-600', bg: 'bg-gray-100' },
@@ -30,6 +31,11 @@ export default function Outbound() {
   const processOutboundCompletion = useAppStore((s) => s.processOutboundCompletion)
   const checkStockAvailable = useAppStore((s) => s.checkStockAvailable)
   const currentUser = useAppStore((s) => s.currentUser)
+  const getBatchesForGoods = useAppStore((s) => s.getBatchesForGoods)
+  const getFIFOAllocationsForGoods = useAppStore((s) => s.getFIFOAllocationsForGoods)
+  const batchInventory = useAppStore((s) => s.batchInventory)
+  const storageLocations = useAppStore((s) => s.storageLocations)
+  const warehouses = useAppStore((s) => s.warehouses)
 
   const [formData, setFormData] = useState({
     goods_id: '',
@@ -39,12 +45,44 @@ export default function Outbound() {
     receiver: '',
     purpose: '',
   })
+  const [batchMode, setBatchMode] = useState<'auto' | 'manual'>('auto')
+  const [batchAllocations, setBatchAllocations] = useState<OutboundBatchAllocation[]>([])
+  const [manualQuantities, setManualQuantities] = useState<Record<string, number>>({})
+
+  const availableBatches = useMemo(() => {
+    if (!formData.goods_id) return []
+    return getBatchesForGoods(formData.goods_id)
+  }, [formData.goods_id, getBatchesForGoods, batchInventory])
+
+  const fifoAllocations = useMemo(() => {
+    if (!formData.goods_id || formData.quantity <= 0) return []
+    return getFIFOAllocationsForGoods(formData.goods_id, formData.quantity)
+  }, [formData.goods_id, formData.quantity, getFIFOAllocationsForGoods, storageLocations])
+
+  const manualAllocations = useMemo(() => {
+    return availableBatches
+      .map((b) => ({
+        batch_no: b.batch_no,
+        location_id: b.location_id,
+        location_code: b.location_code,
+        quantity: manualQuantities[b.batch_no] || 0,
+      }))
+      .filter((a) => a.quantity > 0)
+  }, [availableBatches, manualQuantities])
+
+  const manualTotal = manualAllocations.reduce((s, a) => s + a.quantity, 0)
+  const manualValid = manualTotal === formData.quantity && formData.quantity > 0
 
   const filteredOrders = outboundOrders.filter((o) => activeTab === 'all' || o.status === activeTab)
 
   const handleSubmit = () => {
     if (!formData.receiver || !formData.goods_id) return
+    if (batchMode === 'manual' && !manualValid) {
+      alert('批次分配数量与出库数量不一致')
+      return
+    }
     const goods = hazardousGoods.find((g) => g.id === formData.goods_id)
+    const allocations = batchMode === 'manual' ? manualAllocations : fifoAllocations
     const result = addOutboundOrder({
       order_no: `CK${new Date().getFullYear()}${(new Date().getMonth() + 1).toString().padStart(2, '0')}${new Date().getDate().toString().padStart(2, '0')}${(outboundOrders.length + 1).toString().padStart(3, '0')}`,
       out_date: new Date().toISOString().split('T')[0],
@@ -62,6 +100,7 @@ export default function Outbound() {
       approver: '',
       approve_date: '',
       reject_reason: '',
+      batch_allocations: allocations,
     })
     if (!result.success) {
       alert(result.message)
@@ -70,6 +109,9 @@ export default function Outbound() {
     alert('申请已提交')
     setShowForm(false)
     setFormData({ goods_id: '', goods_name: '', quantity: 0, unit: 'L', receiver: '', purpose: '' })
+    setBatchMode('auto')
+    setBatchAllocations([])
+    setManualQuantities({})
   }
 
   const handleApprove = (id: string) => {
@@ -226,6 +268,139 @@ export default function Outbound() {
                   />
                 </div>
               </div>
+
+              {formData.goods_id && formData.quantity > 0 && (
+                <div className="border border-gray-200 rounded-lg p-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Layers className="w-4 h-4 text-primary-600" />
+                    <span className="text-sm font-medium text-gray-700">批次分配</span>
+                  </div>
+                  <div className="flex items-center gap-4 mb-3">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="batchMode"
+                        checked={batchMode === 'auto'}
+                        onChange={() => setBatchMode('auto')}
+                        className="accent-primary-600"
+                      />
+                      <span className="text-sm text-gray-700">自动分配（先进先出）</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="batchMode"
+                        checked={batchMode === 'manual'}
+                        onChange={() => setBatchMode('manual')}
+                        className="accent-primary-600"
+                      />
+                      <span className="text-sm text-gray-700">手动指定批次</span>
+                    </label>
+                  </div>
+
+                  {batchMode === 'auto' && (
+                    <>
+                      {fifoAllocations.length > 0 ? (
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-sm">
+                            <thead>
+                              <tr className="bg-gray-50">
+                                <th className="text-left px-3 py-2 text-xs text-gray-500 font-medium">批次号</th>
+                                <th className="text-left px-3 py-2 text-xs text-gray-500 font-medium">库位</th>
+                                <th className="text-right px-3 py-2 text-xs text-gray-500 font-medium">分配数量</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {fifoAllocations.map((a, i) => (
+                                <tr key={i} className="border-t border-gray-100">
+                                  <td className="px-3 py-2 font-mono text-xs">{a.batch_no}</td>
+                                  <td className="px-3 py-2 text-xs">{a.location_code}</td>
+                                  <td className="px-3 py-2 text-xs text-right font-medium">{a.quantity} {formData.unit}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                            <tfoot>
+                              <tr className="border-t border-gray-200 bg-gray-50">
+                                <td colSpan={2} className="px-3 py-2 text-xs font-medium text-gray-600">合计</td>
+                                <td className="px-3 py-2 text-xs text-right font-bold text-primary-600">
+                                  {fifoAllocations.reduce((s, a) => s + a.quantity, 0)} {formData.unit}
+                                </td>
+                              </tr>
+                            </tfoot>
+                          </table>
+                        </div>
+                      ) : (
+                        <p className="text-xs text-red-500">可用批次库存不足，无法自动分配</p>
+                      )}
+                    </>
+                  )}
+
+                  {batchMode === 'manual' && (
+                    <>
+                      {availableBatches.length > 0 ? (
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-sm">
+                            <thead>
+                              <tr className="bg-gray-50">
+                                <th className="text-left px-3 py-2 text-xs text-gray-500 font-medium">批次号</th>
+                                <th className="text-left px-3 py-2 text-xs text-gray-500 font-medium">库位</th>
+                                <th className="text-right px-3 py-2 text-xs text-gray-500 font-medium">可用库存</th>
+                                <th className="text-center px-3 py-2 text-xs text-gray-500 font-medium">分配数量</th>
+                                <th className="text-right px-3 py-2 text-xs text-gray-500 font-medium">剩余</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {availableBatches.map((b) => (
+                                <tr key={b.batch_no} className="border-t border-gray-100">
+                                  <td className="px-3 py-2 font-mono text-xs">{b.batch_no}</td>
+                                  <td className="px-3 py-2 text-xs">{b.location_code}</td>
+                                  <td className="px-3 py-2 text-xs text-right">{b.remaining_quantity} {formData.unit}</td>
+                                  <td className="px-3 py-2">
+                                    <input
+                                      type="number"
+                                      min={0}
+                                      max={b.remaining_quantity}
+                                      value={manualQuantities[b.batch_no] || ''}
+                                      onChange={(e) => {
+                                        const val = Number(e.target.value)
+                                        if (val < 0 || val > b.remaining_quantity) return
+                                        setManualQuantities({ ...manualQuantities, [b.batch_no]: val })
+                                      }}
+                                      className="input-field text-center text-xs py-1 px-2 w-24"
+                                      placeholder="0"
+                                    />
+                                  </td>
+                                  <td className="px-3 py-2 text-xs text-right">
+                                    {b.remaining_quantity - (manualQuantities[b.batch_no] || 0)} {formData.unit}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                            <tfoot>
+                              <tr className="border-t border-gray-200 bg-gray-50">
+                                <td colSpan={3} className="px-3 py-2 text-xs font-medium text-gray-600">合计</td>
+                                <td className="px-3 py-2 text-xs text-center font-bold text-primary-600">
+                                  {manualTotal} {formData.unit}
+                                </td>
+                                <td />
+                              </tr>
+                            </tfoot>
+                          </table>
+                          {!manualValid && formData.quantity > 0 && (
+                            <p className="text-xs text-red-500 mt-2">
+                              {manualTotal > formData.quantity
+                                ? `分配总量超出出库数量 ${manualTotal - formData.quantity} ${formData.unit}`
+                                : `还需分配 ${formData.quantity - manualTotal} ${formData.unit}`}
+                            </p>
+                          )}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-red-500">该货品暂无可用批次</p>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
             </div>
             <div className="p-5 border-t border-gray-100 flex justify-end gap-3">
               <button onClick={() => setShowForm(false)} className="btn-secondary">取消</button>
@@ -412,6 +587,26 @@ export default function Outbound() {
                           <span className="text-xs font-medium text-danger">驳回原因</span>
                         </div>
                         <p className="text-sm text-red-700 mt-1">{order.reject_reason}</p>
+                      </div>
+                    )}
+
+                    {order.status !== 'pending' && order.batch_allocations && order.batch_allocations.length > 0 && (
+                      <div className="mt-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                        <div className="flex items-center gap-2 mb-2">
+                          <Layers className="w-4 h-4 text-gray-500" />
+                          <span className="text-xs font-medium text-gray-600">批次分配详情</span>
+                        </div>
+                        <div className="flex flex-wrap gap-3">
+                          {order.batch_allocations.map((ba, i) => (
+                            <div key={i} className="flex items-center gap-2 bg-white rounded px-2.5 py-1.5 border border-gray-100">
+                              <span className="font-mono text-xs text-gray-700">{ba.batch_no}</span>
+                              <span className="text-xs text-gray-400">|</span>
+                              <span className="text-xs text-gray-500">{ba.location_code}</span>
+                              <span className="text-xs text-gray-400">|</span>
+                              <span className="text-xs font-medium text-primary-600">{ba.quantity} {order.unit}</span>
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     )}
 

@@ -57,14 +57,37 @@ export interface StorageLocation {
   code: string
   row: number
   col: number
-  goods_id: string
-  goods_name: string
-  batch_no: string
-  warehousing_order_id: string
-  warehousing_order_no: string
   capacity: number
   used_capacity: number
   status: 'empty' | 'partial' | 'full'
+  batches: LocationBatch[]
+}
+
+export interface LocationBatch {
+  batch_no: string
+  goods_id: string
+  goods_name: string
+  quantity: number
+  warehousing_order_id: string
+  warehousing_order_no: string
+  in_date: string
+}
+
+export interface BatchInventory {
+  id: string
+  batch_no: string
+  goods_id: string
+  goods_name: string
+  warehouse_id: string
+  warehouse_name: string
+  location_id: string
+  location_code: string
+  total_quantity: number
+  remaining_quantity: number
+  unit: string
+  warehousing_order_id: string
+  warehousing_order_no: string
+  in_date: string
 }
 
 export interface OutboundOrder {
@@ -85,6 +108,14 @@ export interface OutboundOrder {
   approver: string
   approve_date: string
   reject_reason: string
+  batch_allocations: OutboundBatchAllocation[]
+}
+
+export interface OutboundBatchAllocation {
+  batch_no: string
+  location_id: string
+  location_code: string
+  quantity: number
 }
 
 export interface SafetyDevice {
