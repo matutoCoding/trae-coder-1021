@@ -1,0 +1,51 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-gray-50 text-gray-800 font-sans antialiased;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply px-4 py-2 bg-primary-600 text-white rounded hover:bg-primary-700 transition-colors text-sm font-medium;
+  }
+  .btn-secondary {
+    @apply px-4 py-2 border border-gray-300 bg-white text-gray-700 rounded hover:bg-gray-50 transition-colors text-sm font-medium;
+  }
+  .btn-danger {
+    @apply px-4 py-2 bg-danger text-white rounded hover:bg-red-700 transition-colors text-sm font-medium;
+  }
+  .card {
+    @apply bg-white rounded-lg shadow-sm border border-gray-100;
+  }
+  .badge {
+    @apply px-2 py-0.5 rounded text-xs font-medium;
+  }
+  .input-field {
+    @apply w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent text-sm;
+  }
+  .table-header {
+    @apply bg-gray-50 text-gray-600 text-xs font-medium uppercase tracking-wider;
+  }
+  .table-cell {
+    @apply px-4 py-3 text-sm text-gray-700 border-t border-gray-100;
+  }
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
