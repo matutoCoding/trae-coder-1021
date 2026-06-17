@@ -35,6 +35,9 @@ import {
 const STORAGE_KEY = 'hazardous-warehouse-data'
 
 interface PersistedData {
+  hazardousGoods: HazardousGoods[]
+  warehouses: Warehouse[]
+  storageLocations: StorageLocation[]
   warehousingOrders: WarehousingOrder[]
   outboundOrders: OutboundOrder[]
   accidentReports: AccidentReport[]
@@ -75,19 +78,24 @@ interface AppState {
   currentUser: { name: string; role: string }
   addWarehousingOrder: (order: Omit<WarehousingOrder, 'id'>) => void
   updateWarehousingOrder: (id: string, data: Partial<WarehousingOrder>) => void
-  addOutboundOrder: (order: Omit<OutboundOrder, 'id'>) => void
+  processWarehousingApproval: (orderId: string, data: Partial<WarehousingOrder> & { warehouse_id: string; location_code: string; quantity: number; goods_id: string }) => void
+  addOutboundOrder: (order: Omit<OutboundOrder, 'id'>) => { success: boolean; message: string }
   updateOutboundOrder: (id: string, data: Partial<OutboundOrder>) => void
+  processOutboundCompletion: (orderId: string) => { success: boolean; message: string }
+  checkStockAvailable: (goodsId: string, quantity: number) => { available: boolean; currentStock: number; required: number }
   handleAlert: (id: string, handler: string) => void
   addAccidentReport: (report: Omit<AccidentReport, 'id' | 'report_no'>) => void
   updateSupervisionReport: (id: string, data: Partial<SupervisionReport>) => void
   batchUpdateSupervisionReports: (ids: string[], data: Partial<SupervisionReport>) => void
+  updateStorageLocation: (id: string, data: Partial<StorageLocation>) => void
+  getStorageLocationByCode: (warehouseId: string, code: string) => StorageLocation | undefined
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
-  hazardousGoods: mockHazardousGoods,
+  hazardousGoods: saved?.hazardousGoods || mockHazardousGoods,
   warehousingOrders: saved?.warehousingOrders || mockWarehousingOrders,
-  warehouses: mockWarehouses,
-  storageLocations: generateStorageLocations(mockWarehouses),
+  warehouses: saved?.warehouses || mockWarehouses,
+  storageLocations: saved?.storageLocations || generateStorageLocations(mockWarehouses),
   outboundOrders: saved?.outboundOrders || mockOutboundOrders,
   safetyDevices: mockSafetyDevices,
   personnel: mockPersonnel,
@@ -104,6 +112,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => {
       const newList = [{ ...order, id: Date.now().toString() }, ...state.warehousingOrders]
       persistData({
+        hazardousGoods: state.hazardousGoods,
+        warehouses: state.warehouses,
+        storageLocations: state.storageLocations,
         warehousingOrders: newList,
         outboundOrders: state.outboundOrders,
         accidentReports: state.accidentReports,
@@ -118,6 +129,9 @@ export const useAppStore = create<AppState>((set, get) => ({
         o.id === id ? { ...o, ...data } : o
       )
       persistData({
+        hazardousGoods: state.hazardousGoods,
+        warehouses: state.warehouses,
+        storageLocations: state.storageLocations,
         warehousingOrders: newList,
         outboundOrders: state.outboundOrders,
         accidentReports: state.accidentReports,
@@ -126,10 +140,127 @@ export const useAppStore = create<AppState>((set, get) => ({
       return { warehousingOrders: newList }
     }),
 
-  addOutboundOrder: (order) =>
+  processWarehousingApproval: (orderId, data) => {
+    const { warehouse_id, location_code, quantity, goods_id, ...orderData } = data
+    const state = get()
+    const order = state.warehousingOrders.find(o => o.id === orderId)
+    if (!order) return
+
+    const newWarehousingOrders = state.warehousingOrders.map((o) =>
+      o.id === orderId ? { ...o, ...orderData, warehouse_id, location_code } : o
+    )
+
+    const newHazardousGoods = state.hazardousGoods.map((g) =>
+      g.id === goods_id ? { ...g, stock_quantity: g.stock_quantity + quantity } : g
+    )
+
+    const newWarehouses = state.warehouses.map((w) =>
+      w.id === warehouse_id ? { ...w, used_capacity: w.used_capacity + quantity } : w
+    )
+
+    let newStorageLocations = state.storageLocations
+    const existingLocation = newStorageLocations.find(
+      (loc) => loc.warehouse_id === warehouse_id && loc.code === location_code
+    )
+    if (existingLocation) {
+      newStorageLocations = newStorageLocations.map((loc) => {
+        if (loc.id === existingLocation.id) {
+          const newUsed = loc.used_capacity + quantity
+          return {
+            ...loc,
+            goods_id,
+            goods_name: order.goods_name,
+            batch_no: order.batch_no,
+            warehousing_order_id: order.id,
+            warehousing_order_no: order.order_no,
+            used_capacity: newUsed,
+            status: newUsed === 0 ? 'empty' : newUsed >= loc.capacity * 0.9 ? 'full' : 'partial' as const,
+          }
+        }
+        return loc
+      })
+    } else {
+      const firstEmptyLoc = newStorageLocations.find(
+        (loc) => loc.warehouse_id === warehouse_id && loc.status === 'empty'
+      )
+      if (firstEmptyLoc) {
+        newStorageLocations = newStorageLocations.map((loc) => {
+          if (loc.id === firstEmptyLoc.id) {
+            return {
+              ...loc,
+              code: location_code,
+              goods_id,
+              goods_name: order.goods_name,
+              batch_no: order.batch_no,
+              warehousing_order_id: order.id,
+              warehousing_order_no: order.order_no,
+              used_capacity: quantity,
+              status: quantity >= loc.capacity * 0.9 ? 'full' : 'partial' as const,
+            }
+          }
+          return loc
+        })
+      }
+    }
+
+    persistData({
+      hazardousGoods: newHazardousGoods,
+      warehouses: newWarehouses,
+      storageLocations: newStorageLocations,
+      warehousingOrders: newWarehousingOrders,
+      outboundOrders: state.outboundOrders,
+      accidentReports: state.accidentReports,
+      supervisionReports: state.supervisionReports,
+    })
+
+    set({
+      hazardousGoods: newHazardousGoods,
+      warehouses: newWarehouses,
+      storageLocations: newStorageLocations,
+      warehousingOrders: newWarehousingOrders,
+    })
+  },
+
+  checkStockAvailable: (goodsId, quantity) => {
+    const goods = get().hazardousGoods.find(g => g.id === goodsId)
+    if (!goods) return { available: false, currentStock: 0, required: quantity }
+    return {
+      available: goods.stock_quantity >= quantity,
+      currentStock: goods.stock_quantity,
+      required: quantity,
+    }
+  },
+
+  addOutboundOrder: (order) => {
+    const check = get().checkStockAvailable(order.goods_id, order.quantity)
+    if (!check.available) {
+      return { success: false, message: `库存不足，当前库存${check.currentStock}${order.unit}，申请${check.required}${order.unit}` }
+    }
     set((state) => {
       const newList = [{ ...order, id: Date.now().toString(), reject_reason: (order as any).reject_reason || '' }, ...state.outboundOrders]
       persistData({
+        hazardousGoods: state.hazardousGoods,
+        warehouses: state.warehouses,
+        storageLocations: state.storageLocations,
+        warehousingOrders: state.warehousingOrders,
+        outboundOrders: newList,
+        accidentReports: state.accidentReports,
+        supervisionReports: state.supervisionReports,
+      })
+      return { outboundOrders: newList }
+    })
+    return { success: true, message: '申请已提交' }
+  },
+
+  updateOutboundOrder: (id, data) =>
+    set((state) => {
+      const newList = state.outboundOrders.map((o) =>
+        o.id === id ? { ...o, ...data } : o
+      )
+      persistData({
+        hazardousGoods: state.hazardousGoods,
+        warehouses: state.warehouses,
+        storageLocations: state.storageLocations,
         warehousingOrders: state.warehousingOrders,
         outboundOrders: newList,
         accidentReports: state.accidentReports,
@@ -138,19 +269,40 @@ export const useAppStore = create<AppState>((set, get) => ({
       return { outboundOrders: newList }
     }),
 
-  updateOutboundOrder: (id, data) =>
-    set((state) => {
-      const newList = state.outboundOrders.map((o) =>
-        o.id === id ? { ...o, ...data } : o
-      )
-      persistData({
-        warehousingOrders: state.warehousingOrders,
-        outboundOrders: newList,
-        accidentReports: state.accidentReports,
-        supervisionReports: state.supervisionReports,
-      })
-      return { outboundOrders: newList }
-    }),
+  processOutboundCompletion: (orderId) => {
+    const state = get()
+    const order = state.outboundOrders.find(o => o.id === orderId)
+    if (!order) return { success: false, message: '订单不存在' }
+
+    const check = get().checkStockAvailable(order.goods_id, order.quantity)
+    if (!check.available) {
+      return { success: false, message: `库存不足，当前库存${check.currentStock}${order.unit}，需出库${check.required}${order.unit}` }
+    }
+
+    const newHazardousGoods = state.hazardousGoods.map((g) =>
+      g.id === order.goods_id ? { ...g, stock_quantity: g.stock_quantity - order.quantity } : g
+    )
+
+    const newOutboundOrders = state.outboundOrders.map((o) =>
+      o.id === orderId ? { ...o, status: 'completed' as const } : o
+    )
+
+    persistData({
+      hazardousGoods: newHazardousGoods,
+      warehouses: state.warehouses,
+      storageLocations: state.storageLocations,
+      warehousingOrders: state.warehousingOrders,
+      outboundOrders: newOutboundOrders,
+      accidentReports: state.accidentReports,
+      supervisionReports: state.supervisionReports,
+    })
+
+    set({
+      hazardousGoods: newHazardousGoods,
+      outboundOrders: newOutboundOrders,
+    })
+    return { success: true, message: '已确认送达，库存已扣减' }
+  },
 
   handleAlert: (id, handler) =>
     set((state) => ({
@@ -170,6 +322,9 @@ export const useAppStore = create<AppState>((set, get) => ({
         ...state.accidentReports,
       ]
       persistData({
+        hazardousGoods: state.hazardousGoods,
+        warehouses: state.warehouses,
+        storageLocations: state.storageLocations,
         warehousingOrders: state.warehousingOrders,
         outboundOrders: state.outboundOrders,
         accidentReports: newList,
@@ -184,6 +339,9 @@ export const useAppStore = create<AppState>((set, get) => ({
         r.id === id ? { ...r, ...data } : r
       )
       persistData({
+        hazardousGoods: state.hazardousGoods,
+        warehouses: state.warehouses,
+        storageLocations: state.storageLocations,
         warehousingOrders: state.warehousingOrders,
         outboundOrders: state.outboundOrders,
         accidentReports: state.accidentReports,
@@ -199,6 +357,9 @@ export const useAppStore = create<AppState>((set, get) => ({
         idSet.has(r.id) ? { ...r, ...data } : r
       )
       persistData({
+        hazardousGoods: state.hazardousGoods,
+        warehouses: state.warehouses,
+        storageLocations: state.storageLocations,
         warehousingOrders: state.warehousingOrders,
         outboundOrders: state.outboundOrders,
         accidentReports: state.accidentReports,
@@ -206,4 +367,27 @@ export const useAppStore = create<AppState>((set, get) => ({
       })
       return { supervisionReports: newList }
     }),
+
+  updateStorageLocation: (id, data) =>
+    set((state) => {
+      const newLocations = state.storageLocations.map((loc) =>
+        loc.id === id ? { ...loc, ...data } : loc
+      )
+      persistData({
+        hazardousGoods: state.hazardousGoods,
+        warehouses: state.warehouses,
+        storageLocations: newLocations,
+        warehousingOrders: state.warehousingOrders,
+        outboundOrders: state.outboundOrders,
+        accidentReports: state.accidentReports,
+        supervisionReports: state.supervisionReports,
+      })
+      return { storageLocations: newLocations }
+    }),
+
+  getStorageLocationByCode: (warehouseId, code) => {
+    return get().storageLocations.find(
+      (loc) => loc.warehouse_id === warehouseId && loc.code === code
+    )
+  },
 }))

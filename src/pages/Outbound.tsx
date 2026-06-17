@@ -27,6 +27,8 @@ export default function Outbound() {
   const hazardousGoods = useAppStore((s) => s.hazardousGoods)
   const addOutboundOrder = useAppStore((s) => s.addOutboundOrder)
   const updateOutboundOrder = useAppStore((s) => s.updateOutboundOrder)
+  const processOutboundCompletion = useAppStore((s) => s.processOutboundCompletion)
+  const checkStockAvailable = useAppStore((s) => s.checkStockAvailable)
   const currentUser = useAppStore((s) => s.currentUser)
 
   const [formData, setFormData] = useState({
@@ -43,7 +45,7 @@ export default function Outbound() {
   const handleSubmit = () => {
     if (!formData.receiver || !formData.goods_id) return
     const goods = hazardousGoods.find((g) => g.id === formData.goods_id)
-    addOutboundOrder({
+    const result = addOutboundOrder({
       order_no: `CK${new Date().getFullYear()}${(new Date().getMonth() + 1).toString().padStart(2, '0')}${new Date().getDate().toString().padStart(2, '0')}${(outboundOrders.length + 1).toString().padStart(3, '0')}`,
       out_date: new Date().toISOString().split('T')[0],
       status: 'pending',
@@ -61,6 +63,11 @@ export default function Outbound() {
       approve_date: '',
       reject_reason: '',
     })
+    if (!result.success) {
+      alert(result.message)
+      return
+    }
+    alert('申请已提交')
     setShowForm(false)
     setFormData({ goods_id: '', goods_name: '', quantity: 0, unit: 'L', receiver: '', purpose: '' })
   }
@@ -98,8 +105,14 @@ export default function Outbound() {
     setActiveOrderId(null)
   }
 
-  const handleComplete = (id: string) => {
-    updateOutboundOrder(id, { status: 'completed' })
+  const handleComplete = (order: { id: string; goods_id: string; quantity: number }) => {
+    const stockCheck = checkStockAvailable(order.goods_id, order.quantity)
+    if (!stockCheck.available) {
+      alert(`库存不足，当前库存${stockCheck.currentStock}，需出库${stockCheck.required}`)
+      return
+    }
+    const result = processOutboundCompletion(order.id)
+    alert(result.message)
   }
 
   const openRejectModal = (id: string) => {
@@ -284,9 +297,10 @@ export default function Outbound() {
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm text-gray-600 mb-1">押运员</label>
+                  <label className="block text-sm text-gray-600 mb-1">押运员 <span className="text-danger">*</span></label>
                   <input
                     type="text"
+                    required
                     value={dispatchData.supervisor}
                     onChange={(e) => setDispatchData({ ...dispatchData, supervisor: e.target.value })}
                     className="input-field"
@@ -294,9 +308,10 @@ export default function Outbound() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm text-gray-600 mb-1">配送路线</label>
+                  <label className="block text-sm text-gray-600 mb-1">配送路线 <span className="text-danger">*</span></label>
                   <input
                     type="text"
+                    required
                     value={dispatchData.route}
                     onChange={(e) => setDispatchData({ ...dispatchData, route: e.target.value })}
                     className="input-field"
@@ -307,7 +322,7 @@ export default function Outbound() {
             </div>
             <div className="p-5 border-t border-gray-100 flex justify-end gap-3">
               <button onClick={() => { setShowDispatchModal(false); setDispatchData({ vehicle_no: '', driver: '', supervisor: '', route: '' }); setActiveOrderId(null) }} className="btn-secondary">取消</button>
-              <button onClick={handleDispatch} className="btn-primary" disabled={!dispatchData.vehicle_no || !dispatchData.driver}>确认调度</button>
+              <button onClick={handleDispatch} className="btn-primary" disabled={!dispatchData.vehicle_no || !dispatchData.driver || !dispatchData.supervisor || !dispatchData.route}>确认调度</button>
             </div>
           </div>
         </div>
@@ -430,7 +445,7 @@ export default function Outbound() {
                       <button onClick={() => openDispatchModal(order.id)} className="btn-primary text-xs px-3 py-1.5">调度配送</button>
                     )}
                     {order.status === 'dispatched' && (
-                      <button onClick={() => handleComplete(order.id)} className="btn-primary text-xs px-3 py-1.5">确认送达</button>
+                      <button onClick={() => handleComplete(order)} className="btn-primary text-xs px-3 py-1.5">确认送达</button>
                     )}
                     <button className="btn-secondary text-xs px-3 py-1.5">查看详情</button>
                   </div>

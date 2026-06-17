@@ -1,8 +1,10 @@
-import { useState } from 'react'
-import { Thermometer, Droplets, Wind, Package, AlertTriangle, CheckCircle, Layers, Grid3x3 } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
+import { Thermometer, Droplets, Wind, Package, AlertTriangle, CheckCircle, Layers, Grid3x3, X, MapPin, Warehouse, Tag, Hash, FileText, Box, Activity } from 'lucide-react'
 import { useAppStore } from '@/store'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import { generateTemperatureHistory } from '@/data/mockData'
+import type { StorageLocation } from '@/types'
 
 const statusColor: Record<string, string> = {
   normal: 'bg-success',
@@ -16,16 +18,59 @@ const statusLabel: Record<string, string> = {
   danger: '报警',
 }
 
+const locationStatusLabel: Record<string, string> = {
+  empty: '空闲',
+  partial: '使用中',
+  full: '已满',
+}
+
+const locationStatusColor: Record<string, string> = {
+  empty: 'bg-green-100 text-success',
+  partial: 'bg-blue-100 text-primary-600',
+  full: 'bg-red-100 text-danger',
+}
+
 export default function Storage() {
   const [selectedWarehouse, setSelectedWarehouse] = useState('1')
+  const [selectedLocation, setSelectedLocation] = useState<StorageLocation | null>(null)
+  const [showLocationModal, setShowLocationModal] = useState(false)
   const warehouses = useAppStore((s) => s.warehouses)
   const storageLocations = useAppStore((s) => s.storageLocations)
+  const getStorageLocationByCode = useAppStore((s) => s.getStorageLocationByCode)
+  const location = useLocation()
+  const navigate = useNavigate()
 
   const currentWarehouse = warehouses.find((w) => w.id === selectedWarehouse)
   const currentLocations = storageLocations.filter((l) => l.warehouse_id === selectedWarehouse)
   const chartData = generateTemperatureHistory(currentWarehouse?.temperature || 22, 3)
 
   const usedPercent = currentWarehouse ? (currentWarehouse.used_capacity / currentWarehouse.capacity) * 100 : 0
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search)
+    const warehouseId = params.get('warehouse_id')
+    const locationCode = params.get('location_code')
+
+    if (warehouseId && locationCode) {
+      setSelectedWarehouse(warehouseId)
+      const loc = getStorageLocationByCode(warehouseId, locationCode)
+      if (loc) {
+        setSelectedLocation(loc)
+        setShowLocationModal(true)
+      }
+    }
+  }, [location.search, getStorageLocationByCode])
+
+  const handleLocationClick = (loc: StorageLocation) => {
+    setSelectedLocation(loc)
+    setShowLocationModal(true)
+  }
+
+  const handleCloseModal = () => {
+    setShowLocationModal(false)
+    setSelectedLocation(null)
+    navigate('/storage', { replace: true })
+  }
 
   return (
     <div className="space-y-6">
@@ -175,7 +220,8 @@ export default function Storage() {
                             return (
                               <div
                                 key={loc.id}
-                                className={`relative aspect-square rounded border-2 ${color} flex flex-col items-center justify-center cursor-pointer transition-colors group`}
+                                onClick={() => handleLocationClick(loc)}
+                                className={`relative aspect-square rounded border-2 ${color} flex flex-col items-center justify-center cursor-pointer hover:ring-2 hover:ring-primary-400 transition-all group`}
                               >
                                 <span className="text-[10px] font-medium text-gray-700">{loc.code}</span>
                                 {loc.goods_name && (
@@ -293,6 +339,138 @@ export default function Storage() {
             </div>
           </div>
         </>
+      )}
+
+      {showLocationModal && selectedLocation && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-auto">
+            <div className="flex items-center justify-between p-5 border-b border-gray-100">
+              <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                <MapPin className="w-5 h-5 text-primary-600" />
+                库位详情
+              </h2>
+              <button
+                onClick={handleCloseModal}
+                className="w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center transition-colors"
+              >
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-1.5 text-xs text-gray-500">
+                    <Tag className="w-3.5 h-3.5" />
+                    库位编码
+                  </div>
+                  <p className="text-sm font-semibold text-gray-800">{selectedLocation.code}</p>
+                </div>
+                <div className="space-y-1">
+                  <div className="flex items-center gap-1.5 text-xs text-gray-500">
+                    <Warehouse className="w-3.5 h-3.5" />
+                    所属仓库
+                  </div>
+                  <p className="text-sm font-semibold text-gray-800">
+                    {warehouses.find((w) => w.id === selectedLocation.warehouse_id)?.name}
+                  </p>
+                </div>
+              </div>
+
+              {selectedLocation.status === 'empty' ? (
+                <div className="py-12 text-center">
+                  <Box className="w-16 h-16 text-gray-300 mx-auto mb-3" />
+                  <p className="text-gray-500 font-medium">该库位暂无货品</p>
+                  <p className="text-xs text-gray-400 mt-1">容量: {selectedLocation.capacity}</p>
+                </div>
+              ) : (
+                <>
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-1.5 text-xs text-gray-500">
+                      <Package className="w-3.5 h-3.5" />
+                      货品名称
+                    </div>
+                    <p className="text-sm font-semibold text-gray-800">{selectedLocation.goods_name}</p>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-1.5 text-xs text-gray-500">
+                        <Hash className="w-3.5 h-3.5" />
+                        批次号
+                      </div>
+                      <p className="text-sm font-medium text-gray-800">{selectedLocation.batch_no}</p>
+                    </div>
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-1.5 text-xs text-gray-500">
+                        <FileText className="w-3.5 h-3.5" />
+                        来源入库单
+                      </div>
+                      <button
+                        onClick={() => navigate(`/warehousing?order_id=${selectedLocation.warehousing_order_id}`)}
+                        className="text-sm font-medium text-primary-600 hover:text-primary-700 hover:underline"
+                      >
+                        {selectedLocation.warehousing_order_no}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5 text-xs text-gray-500">
+                        <Activity className="w-3.5 h-3.5" />
+                        当前数量/容量
+                      </div>
+                      <span className="text-sm font-semibold text-gray-800">
+                        {selectedLocation.used_capacity} / {selectedLocation.capacity}
+                      </span>
+                    </div>
+                    <div className="w-full h-3 bg-gray-100 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all ${
+                          (selectedLocation.used_capacity / selectedLocation.capacity) * 100 >= 90
+                            ? 'bg-danger'
+                            : (selectedLocation.used_capacity / selectedLocation.capacity) * 100 >= 70
+                            ? 'bg-warning'
+                            : 'bg-primary-500'
+                        }`}
+                        style={{ width: `${(selectedLocation.used_capacity / selectedLocation.capacity) * 100}%` }}
+                      />
+                    </div>
+                    <p className="text-xs text-gray-500 text-right">
+                      使用比例: {((selectedLocation.used_capacity / selectedLocation.capacity) * 100).toFixed(1)}%
+                    </p>
+                  </div>
+                </>
+              )}
+
+              <div className="pt-3 border-t border-gray-100">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-gray-500">状态</span>
+                  <span className={`badge inline-flex items-center gap-1 ${locationStatusColor[selectedLocation.status]}`}>
+                    {selectedLocation.status === 'empty' ? (
+                      <CheckCircle className="w-3 h-3" />
+                    ) : selectedLocation.status === 'full' ? (
+                      <AlertTriangle className="w-3 h-3" />
+                    ) : (
+                      <Package className="w-3 h-3" />
+                    )}
+                    {locationStatusLabel[selectedLocation.status]}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-5 border-t border-gray-100 bg-gray-50 rounded-b-xl">
+              <button
+                onClick={handleCloseModal}
+                className="w-full py-2.5 bg-primary-600 text-white rounded-lg font-medium hover:bg-primary-700 transition-colors"
+              >
+                关闭
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

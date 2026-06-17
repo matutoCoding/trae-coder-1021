@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { Plus, Search, Check, X, Clock, AlertCircle, ShieldAlert, FileCheck, User, MapPin } from 'lucide-react'
+import { Plus, Search, Check, X, Clock, AlertCircle, ShieldAlert, FileCheck, User, MapPin, ExternalLink } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import { useAppStore } from '@/store'
 
 const statusConfig: Record<string, { label: string; color: string; bg: string }> = {
@@ -54,6 +55,8 @@ export default function Warehousing() {
   const warehouses = useAppStore((s) => s.warehouses)
   const addWarehousingOrder = useAppStore((s) => s.addWarehousingOrder)
   const updateWarehousingOrder = useAppStore((s) => s.updateWarehousingOrder)
+  const processWarehousingApproval = useAppStore((s) => s.processWarehousingApproval)
+  const navigate = useNavigate()
 
   const [formData, setFormData] = useState({
     supplier: '',
@@ -117,14 +120,18 @@ export default function Warehousing() {
   }
 
   const handleApproveSubmit = () => {
-    if (!activeOrderId || !approveForm.inspector || !approveForm.warehouse_id) return
-    updateWarehousingOrder(activeOrderId, {
+    if (!activeOrderId || !approveForm.inspector || !approveForm.warehouse_id || !approveForm.location_code) return
+    const order = warehousingOrders.find((o) => o.id === activeOrderId)
+    if (!order) return
+    processWarehousingApproval(activeOrderId, {
       status: 'approved',
       inspector: approveForm.inspector,
       inspection_result: approveForm.inspection_result,
       inspection_date: new Date().toISOString().split('T')[0],
       warehouse_id: approveForm.warehouse_id,
       location_code: approveForm.location_code,
+      quantity: order.quantity,
+      goods_id: order.goods_id,
     })
     setShowApproveModal(false)
     setActiveOrderId(null)
@@ -327,19 +334,20 @@ export default function Warehousing() {
                 </select>
               </div>
               <div>
-                <label className="block text-sm text-gray-600 mb-1">库位编码</label>
+                <label className="block text-sm text-gray-600 mb-1">库位编码 <span className="text-danger">*</span></label>
                 <input
                   type="text"
                   value={approveForm.location_code}
                   onChange={(e) => setApproveForm({ ...approveForm, location_code: e.target.value })}
                   className="input-field"
                   placeholder="如 A-01-03"
+                  required
                 />
               </div>
             </div>
             <div className="p-5 border-t border-gray-100 flex justify-end gap-3">
               <button onClick={() => { setShowApproveModal(false); setActiveOrderId(null) }} className="btn-secondary">取消</button>
-              <button onClick={handleApproveSubmit} className="btn-primary">确认入库</button>
+              <button onClick={handleApproveSubmit} className="btn-primary" disabled={!approveForm.location_code || !approveForm.warehouse_id}>确认入库</button>
             </div>
           </div>
         </div>
@@ -460,7 +468,13 @@ export default function Warehousing() {
                           <div className="flex items-center gap-1.5 text-gray-600">
                             <MapPin className="w-4 h-4 text-primary-600" />
                             <span className="text-gray-500">库位:</span>
-                            <span className="text-gray-800 font-mono">{order.location_code}</span>
+                            <button
+                              onClick={() => navigate(`/storage?warehouse_id=${order.warehouse_id}&location_code=${order.location_code}`)}
+                              className="text-primary-600 hover:text-primary-700 font-mono underline underline-offset-2 inline-flex items-center gap-1"
+                            >
+                              {order.location_code}
+                              <ExternalLink className="w-3 h-3" />
+                            </button>
                           </div>
                         )}
                       </div>

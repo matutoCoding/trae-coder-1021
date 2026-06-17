@@ -59,6 +59,9 @@ export interface StorageLocation {
   col: number
   goods_id: string
   goods_name: string
+  batch_no: string
+  warehousing_order_id: string
+  warehousing_order_no: string
   capacity: number
   used_capacity: number
   status: 'empty' | 'partial' | 'full'
