@@ -291,7 +291,7 @@ export default function Inventory() {
                         <td className="table-cell font-mono text-xs text-gray-700">{batch.batch_no}</td>
                         <td className="table-cell">
                           <button
-                            onClick={() => navigate('/warehousing')}
+                            onClick={() => navigate(`/warehousing?order_id=${batch.warehousing_order_id}`)}
                             className="text-blue-600 hover:underline text-xs flex items-center gap-1"
                           >
                             {batch.warehousing_order_no}

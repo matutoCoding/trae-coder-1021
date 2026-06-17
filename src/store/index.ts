@@ -141,22 +141,46 @@ function computeLocationStatus(loc: StorageLocation): StorageLocation {
   return { ...loc, used_capacity: used, status }
 }
 
+function getPendingAllocations(outboundOrders: OutboundOrder[], excludeOrderId?: string): Record<string, number> {
+  const allocated: Record<string, number> = {}
+  for (const order of outboundOrders) {
+    if (excludeOrderId && order.id === excludeOrderId) continue
+    if (order.status === 'pending' || order.status === 'approved' || order.status === 'dispatched') {
+      for (const alloc of order.batch_allocations) {
+        const key = `${alloc.location_id}|${alloc.batch_no}`
+        allocated[key] = (allocated[key] || 0) + alloc.quantity
+      }
+    }
+  }
+  return allocated
+}
+
 function getFIFOAllocations(
   goodsId: string,
   quantity: number,
-  storageLocations: StorageLocation[]
+  storageLocations: StorageLocation[],
+  outboundOrders: OutboundOrder[],
+  excludeOrderId?: string
 ): OutboundBatchAllocation[] {
-  const allBatches: { batch_no: string; location_id: string; location_code: string; quantity: number; in_date: string }[] = []
+  const pending = getPendingAllocations(outboundOrders, excludeOrderId)
+
+  const allBatches: { batch_no: string; location_id: string; location_code: string; quantity: number; available: number; in_date: string }[] = []
   for (const loc of storageLocations) {
     for (const batch of loc.batches) {
       if (batch.goods_id === goodsId && batch.quantity > 0) {
-        allBatches.push({
-          batch_no: batch.batch_no,
-          location_id: loc.id,
-          location_code: loc.code,
-          quantity: batch.quantity,
-          in_date: batch.in_date,
-        })
+        const key = `${loc.id}|${batch.batch_no}`
+        const allocated = pending[key] || 0
+        const available = Math.max(0, batch.quantity - allocated)
+        if (available > 0) {
+          allBatches.push({
+            batch_no: batch.batch_no,
+            location_id: loc.id,
+            location_code: loc.code,
+            quantity: batch.quantity,
+            available,
+            in_date: batch.in_date,
+          })
+        }
       }
     }
   }
@@ -166,16 +190,46 @@ function getFIFOAllocations(
   let remaining = quantity
   for (const b of allBatches) {
     if (remaining <= 0) break
-    const take = Math.min(remaining, b.quantity)
-    allocations.push({
-      batch_no: b.batch_no,
-      location_id: b.location_id,
-      location_code: b.location_code,
-      quantity: take,
-    })
-    remaining -= take
+    const take = Math.min(remaining, b.available)
+    if (take > 0) {
+      allocations.push({
+        batch_no: b.batch_no,
+        location_id: b.location_id,
+        location_code: b.location_code,
+        quantity: take,
+      })
+      remaining -= take
+    }
   }
   return allocations
+}
+
+function verifyBatchAllocations(
+  allocations: OutboundBatchAllocation[],
+  storageLocations: StorageLocation[],
+  outboundOrders: OutboundOrder[],
+  excludeOrderId?: string
+): { success: boolean; message: string; failedBatch?: string; available?: number; required?: number } {
+  const pending = getPendingAllocations(outboundOrders, excludeOrderId)
+  for (const alloc of allocations) {
+    const loc = storageLocations.find(l => l.id === alloc.location_id)
+    if (!loc) return { success: false, message: `库位${alloc.location_code}不存在` }
+    const batch = loc.batches.find(b => b.batch_no === alloc.batch_no)
+    if (!batch) return { success: false, message: `批次${alloc.batch_no}在库位${alloc.location_code}不存在` }
+    const key = `${loc.id}|${batch.batch_no}`
+    const allocated = pending[key] || 0
+    const available = Math.max(0, batch.quantity - allocated)
+    if (alloc.quantity > available) {
+      return {
+        success: false,
+        message: `批次${alloc.batch_no}（库位${alloc.location_code}）可用库存不足，当前可用${available}，需出库${alloc.quantity}`,
+        failedBatch: alloc.batch_no,
+        available,
+        required: alloc.quantity,
+      }
+    }
+  }
+  return { success: true, message: '校验通过' }
 }
 
 function applyBatchDeduction(
@@ -359,15 +413,20 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   checkStockAvailable: (goodsId, quantity) => {
     const state = get()
-    let totalBatchStock = 0
+    const pending = getPendingAllocations(state.outboundOrders)
+    let totalAvailable = 0
     for (const loc of state.storageLocations) {
       for (const batch of loc.batches) {
-        if (batch.goods_id === goodsId) totalBatchStock += batch.quantity
+        if (batch.goods_id === goodsId) {
+          const key = `${loc.id}|${batch.batch_no}`
+          const allocated = pending[key] || 0
+          totalAvailable += Math.max(0, batch.quantity - allocated)
+        }
       }
     }
     return {
-      available: totalBatchStock >= quantity,
-      currentStock: totalBatchStock,
+      available: totalAvailable >= quantity,
+      currentStock: totalAvailable,
       required: quantity,
     }
   },
@@ -377,25 +436,68 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   getBatchesForGoods: (goodsId) => {
-    return get().batchInventory.filter(b => b.goods_id === goodsId && b.remaining_quantity > 0)
+    const state = get()
+    const pending = getPendingAllocations(state.outboundOrders)
+    const warehouses = state.warehouses
+    const goods = state.hazardousGoods
+    const result: BatchInventory[] = []
+    for (const loc of state.storageLocations) {
+      const wh = warehouses.find(w => w.id === loc.warehouse_id)
+      const g = goods.find(gg => gg.id === goodsId)
+      for (const batch of loc.batches) {
+        if (batch.goods_id === goodsId && batch.quantity > 0) {
+          const key = `${loc.id}|${batch.batch_no}`
+          const allocated = pending[key] || 0
+          const remaining = Math.max(0, batch.quantity - allocated)
+          if (remaining > 0) {
+            result.push({
+              id: `${loc.id}-${batch.batch_no}`,
+              batch_no: batch.batch_no,
+              goods_id: batch.goods_id,
+              goods_name: batch.goods_name,
+              warehouse_id: loc.warehouse_id,
+              warehouse_name: wh?.name || '',
+              location_id: loc.id,
+              location_code: loc.code,
+              total_quantity: batch.quantity,
+              remaining_quantity: remaining,
+              unit: g?.unit || '',
+              warehousing_order_id: batch.warehousing_order_id,
+              warehousing_order_no: batch.warehousing_order_no,
+              in_date: batch.in_date,
+            })
+          }
+        }
+      }
+    }
+    return result.sort((a, b) => a.in_date.localeCompare(b.in_date))
   },
 
   getFIFOAllocationsForGoods: (goodsId, quantity) => {
-    return getFIFOAllocations(goodsId, quantity, get().storageLocations)
+    const state = get()
+    return getFIFOAllocations(goodsId, quantity, state.storageLocations, state.outboundOrders)
   },
 
   addOutboundOrder: (order) => {
     const state = get()
     const check = get().checkStockAvailable(order.goods_id, order.quantity)
     if (!check.available) {
-      return { success: false, message: `库存不足，当前可用库存${check.currentStock}${order.unit}，申请${check.required}${order.unit}` }
+      return { success: false, message: `可用库存不足，当前可用${check.currentStock}${order.unit}，申请${check.required}${order.unit}` }
     }
     const allocations = order.batch_allocations && order.batch_allocations.length > 0
       ? order.batch_allocations
-      : getFIFOAllocations(order.goods_id, order.quantity, state.storageLocations)
+      : getFIFOAllocations(order.goods_id, order.quantity, state.storageLocations, state.outboundOrders)
 
-    if (allocations.reduce((s, a) => s + a.quantity, 0) < order.quantity) {
+    const allocTotal = allocations.reduce((s, a) => s + a.quantity, 0)
+    if (allocTotal < order.quantity) {
       return { success: false, message: '可用批次库存不足，无法分配' }
+    }
+
+    if (order.batch_allocations && order.batch_allocations.length > 0) {
+      const verify = verifyBatchAllocations(order.batch_allocations, state.storageLocations, state.outboundOrders)
+      if (!verify.success) {
+        return { success: false, message: verify.message }
+      }
     }
 
     set((state) => {
@@ -427,17 +529,22 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     const check = get().checkStockAvailable(order.goods_id, order.quantity)
     if (!check.available) {
-      return { success: false, message: `库存不足，当前可用库存${check.currentStock}${order.unit}，需出库${check.required}${order.unit}` }
+      return { success: false, message: `可用库存不足，当前可用${check.currentStock}${order.unit}，需出库${check.required}${order.unit}` }
     }
 
     let allocations = order.batch_allocations
     if (!allocations || allocations.length === 0) {
-      allocations = getFIFOAllocations(order.goods_id, order.quantity, state.storageLocations)
+      allocations = getFIFOAllocations(order.goods_id, order.quantity, state.storageLocations, state.outboundOrders, orderId)
     }
 
     const allocTotal = allocations.reduce((s, a) => s + a.quantity, 0)
     if (allocTotal < order.quantity) {
-      allocations = getFIFOAllocations(order.goods_id, order.quantity, state.storageLocations)
+      allocations = getFIFOAllocations(order.goods_id, order.quantity, state.storageLocations, state.outboundOrders, orderId)
+    }
+
+    const verify = verifyBatchAllocations(allocations, state.storageLocations, state.outboundOrders, orderId)
+    if (!verify.success) {
+      return { success: false, message: verify.message }
     }
 
     const newStorageLocations = applyBatchDeduction(state.storageLocations, allocations)
